@@ -2,11 +2,8 @@
 //   Hasher: std default (SipHash) and crate default (AHash).
 //   Int key distribution: low bit heavy, top bit heavy, and random.
 //   Task: basic functionality: insert, insert_erase, lookup, lookup_fail, iter
-#![feature(test)]
 
-extern crate test;
-
-use test::{black_box, Bencher};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 use hashbrown::hash_map::DefaultHashBuilder;
 use hashbrown::HashMap;
@@ -58,21 +55,30 @@ macro_rules! bench_suite {
         );
         $bench_macro!($bench_ahash_random, AHashMap, RandomKeys::new());
         $bench_macro!($bench_std_random, StdHashMap, RandomKeys::new());
+        fn $bench_macro(c: &mut Criterion) {
+            $bench_ahash_serial(c);
+            $bench_std_serial(c);
+            $bench_ahash_highbits(c);
+            $bench_std_highbits(c);
+            $bench_ahash_random(c);
+            $bench_std_random(c);
+        }
     };
 }
 
 macro_rules! bench_insert {
     ($name:ident, $maptype:ident, $keydist:expr) => {
-        #[bench]
-        fn $name(b: &mut Bencher) {
-            let mut m = $maptype::with_capacity_and_hasher(SIZE, Default::default());
-            b.iter(|| {
-                m.clear();
-                for i in ($keydist).take(SIZE) {
-                    m.insert(i, i);
-                }
-                black_box(&mut m);
-            })
+        fn $name(c: &mut Criterion) {
+            c.bench_function(stringify!($name), move |b| {
+                let mut m = $maptype::with_capacity_and_hasher(SIZE, Default::default());
+                b.iter(|| {
+                    m.clear();
+                    for i in ($keydist).take(SIZE) {
+                        m.insert(i, i);
+                    }
+                    black_box(&mut m);
+                });
+            });
         }
     };
 }
@@ -89,25 +95,26 @@ bench_suite!(
 
 macro_rules! bench_insert_erase {
     ($name:ident, $maptype:ident, $keydist:expr) => {
-        #[bench]
-        fn $name(b: &mut Bencher) {
-            let mut base = $maptype::default();
-            for i in ($keydist).take(SIZE) {
-                base.insert(i, i);
-            }
-            let skip = $keydist.skip(SIZE);
-            b.iter(|| {
-                let mut m = base.clone();
-                let mut add_iter = skip.clone();
-                let mut remove_iter = $keydist;
-                // While keeping the size constant,
-                // replace the first keydist with the second.
-                for (add, remove) in (&mut add_iter).zip(&mut remove_iter).take(SIZE) {
-                    m.insert(add, add);
-                    black_box(m.remove(&remove));
+        fn $name(c: &mut Criterion) {
+            c.bench_function(stringify!($name), move |b| {
+                let mut base = $maptype::default();
+                for i in ($keydist).take(SIZE) {
+                    base.insert(i, i);
                 }
-                black_box(m);
-            })
+                let skip = $keydist.skip(SIZE);
+                b.iter(|| {
+                    let mut m = base.clone();
+                    let mut add_iter = skip.clone();
+                    let mut remove_iter = $keydist;
+                    // While keeping the size constant,
+                    // replace the first keydist with the second.
+                    for (add, remove) in (&mut add_iter).zip(&mut remove_iter).take(SIZE) {
+                        m.insert(add, add);
+                        black_box(m.remove(&remove));
+                    }
+                    black_box(m);
+                });
+            });
         }
     };
 }
@@ -124,18 +131,19 @@ bench_suite!(
 
 macro_rules! bench_lookup {
     ($name:ident, $maptype:ident, $keydist:expr) => {
-        #[bench]
-        fn $name(b: &mut Bencher) {
-            let mut m = $maptype::default();
-            for i in $keydist.take(SIZE) {
-                m.insert(i, i);
-            }
-
-            b.iter(|| {
+        fn $name(c: &mut Criterion) {
+            c.bench_function(stringify!($name), move |b| {
+                let mut m = $maptype::default();
                 for i in $keydist.take(SIZE) {
-                    black_box(m.get(&i));
+                    m.insert(i, i);
                 }
-            })
+
+                b.iter(|| {
+                    for i in $keydist.take(SIZE) {
+                        black_box(m.get(&i));
+                    }
+                });
+            });
         }
     };
 }
@@ -152,19 +160,20 @@ bench_suite!(
 
 macro_rules! bench_lookup_fail {
     ($name:ident, $maptype:ident, $keydist:expr) => {
-        #[bench]
-        fn $name(b: &mut Bencher) {
-            let mut m = $maptype::default();
-            let mut iter = $keydist;
-            for i in (&mut iter).take(SIZE) {
-                m.insert(i, i);
-            }
-
-            b.iter(|| {
+        fn $name(c: &mut Criterion) {
+            c.bench_function(stringify!($name), move |b| {
+                let mut m = $maptype::default();
+                let mut iter = $keydist;
                 for i in (&mut iter).take(SIZE) {
-                    black_box(m.get(&i));
+                    m.insert(i, i);
                 }
-            })
+
+                b.iter(|| {
+                    for i in (&mut iter).take(SIZE) {
+                        black_box(m.get(&i));
+                    }
+                });
+            });
         }
     };
 }
@@ -181,18 +190,19 @@ bench_suite!(
 
 macro_rules! bench_iter {
     ($name:ident, $maptype:ident, $keydist:expr) => {
-        #[bench]
-        fn $name(b: &mut Bencher) {
-            let mut m = $maptype::default();
-            for i in ($keydist).take(SIZE) {
-                m.insert(i, i);
-            }
-
-            b.iter(|| {
-                for i in &m {
-                    black_box(i);
+        fn $name(c: &mut Criterion) {
+            c.bench_function(stringify!($name), move |b| {
+                let mut m = $maptype::default();
+                for i in ($keydist).take(SIZE) {
+                    m.insert(i, i);
                 }
-            })
+
+                b.iter(|| {
+                    for i in &m {
+                        black_box(i);
+                    }
+                })
+            });
         }
     };
 }
@@ -206,3 +216,14 @@ bench_suite!(
     iter_ahash_random,
     iter_std_random
 );
+
+criterion_group!(
+    benches,
+    bench_insert,
+    bench_insert_erase,
+    bench_lookup,
+    bench_lookup_fail,
+    bench_iter
+);
+
+criterion_main!(benches);
